@@ -54,6 +54,45 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
 
 export const TEAM_ORDER: TeamKey[] = ["barcelona", "real-madrid", "inter-miami"]
 
+// Partidos o torneos verificados oficiales que pueden no estar indexados en la API pública de ESPN
+export const VERIFIED_EXTRA_MATCHES: Record<TeamKey, Match[]> = {
+  barcelona: [
+    {
+      id: "custom-gamper-2026",
+      date: "2026-08-19T18:00:00.000Z", // 20:00 CEST (18:00 UTC)
+      venue: "Spotify Camp Nou",
+      state: "pre",
+      statusDetail: "Programado",
+      completed: false,
+      competition: {
+        name: "Trofeo Joan Gamper",
+        short: "Trofeo Gamper",
+        slug: "club.friendly",
+        isTournament: true,
+      },
+      home: {
+        teamId: "83",
+        name: "Barcelona",
+        logo: "https://a.espncdn.com/i/teamlogos/soccer/500/83.png",
+        score: null,
+        winner: null,
+        isHome: true,
+      },
+      away: {
+        teamId: "10207",
+        name: "Al Ahly",
+        logo: "https://a.espncdn.com/i/teamlogos/soccer/500/10207.png",
+        score: null,
+        winner: null,
+        isHome: false,
+      },
+    },
+  ],
+  "real-madrid": [],
+  "inter-miami": [],
+}
+
+
 // ---- Raw ESPN response shapes (only the fields we actually read) ----
 
 interface EspnScore {
@@ -448,6 +487,24 @@ async function fetchScheduleResolved(
       }
     }
 
+    // Incorporate any verified official extra matches (e.g. Gamper Trophy, preseason friendlies) not in ESPN
+    const extras = VERIFIED_EXTRA_MATCHES[team.key] || []
+    for (const extra of extras) {
+      if (!seenIds.has(extra.id)) {
+        // Check if there is already a match on the same date with the same opponent
+        const alreadyPresent = teamMatches.some(
+          (m) =>
+            m.date.slice(0, 10) === extra.date.slice(0, 10) &&
+            (m.home.name.toLowerCase().includes(extra.away.name.toLowerCase()) ||
+              m.away.name.toLowerCase().includes(extra.away.name.toLowerCase())),
+        )
+        if (!alreadyPresent) {
+          seenIds.add(extra.id)
+          teamMatches.push(extra)
+        }
+      }
+    }
+
     // Sort ascending by date
     teamMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
@@ -731,6 +788,29 @@ export interface MatchDetail {
 }
 
 export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Promise<MatchDetail | null> {
+  // Check if it matches a verified extra match (such as custom-gamper-2026)
+  for (const teamKey of Object.keys(VERIFIED_EXTRA_MATCHES) as TeamKey[]) {
+    const customMatch = VERIFIED_EXTRA_MATCHES[teamKey].find((m) => m.id === eventId)
+    if (customMatch) {
+      return {
+        id: customMatch.id,
+        date: customMatch.date,
+        venue: customMatch.venue,
+        statusDetail: customMatch.statusDetail || "Programado",
+        completed: customMatch.completed,
+        competitionName: customMatch.competition?.name || "Amistoso",
+        home: customMatch.home,
+        away: customMatch.away,
+        stats: [],
+        events: [],
+        homeLineup: [],
+        awayLineup: [],
+        recapArticle:
+          "61ª edición del histórico Trofeo Joan Gamper en el Spotify Camp Nou. Partido de presentación oficial de la plantilla 2026/27 ante el Al Ahly SC (Egipto), siendo la primera vez que un club africano disputa este emblemático torneo.",
+      }
+    }
+  }
+
   const url = `${SITE_BASE}/${leagueSlug}/summary?event=${eventId}`
   try {
     const data = await fetchJson<any>(url)
