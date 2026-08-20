@@ -173,7 +173,7 @@ export function MatchDetailModal({
                   onClick={() => setTab("stats")}
                   className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
                     tab === "stats"
-                      ? "bg-[var(--team-accent)] text-background shadow"
+                      ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -184,7 +184,7 @@ export function MatchDetailModal({
                   onClick={() => setTab("timeline")}
                   className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
                     tab === "timeline"
-                      ? "bg-[var(--team-accent)] text-background shadow"
+                      ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -195,7 +195,7 @@ export function MatchDetailModal({
                   onClick={() => setTab("lineup")}
                   className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
                     tab === "lineup"
-                      ? "bg-[var(--team-accent)] text-background shadow"
+                      ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -207,7 +207,7 @@ export function MatchDetailModal({
                     onClick={() => setTab("recap")}
                     className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
                       tab === "recap"
-                        ? "bg-[var(--team-accent)] text-background shadow"
+                        ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >

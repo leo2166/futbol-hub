@@ -53,7 +53,10 @@ export function Dashboard() {
   return (
     <div
       className="min-h-screen bg-background"
-      style={{ ["--team-accent" as string]: team.accent }}
+      style={{
+        ["--team-accent" as string]: team.accent,
+        ["--team-accent-foreground" as string]: team.accentForeground,
+      }}
     >
       {/* Ambient team-colored glow */}
       <div
@@ -86,10 +89,17 @@ export function Dashboard() {
                 onClick={() => setActive(key)}
                 className={`rounded-full border px-4 py-2 text-sm font-semibold transition-all duration-300 ${
                   isActive
-                    ? "border-transparent text-background shadow-lg"
+                    ? "border-transparent shadow-lg"
                     : "border-border bg-card/60 text-muted-foreground hover:text-foreground"
                 }`}
-                style={isActive ? { backgroundColor: t.accent } : undefined}
+                style={
+                  isActive
+                    ? {
+                        backgroundColor: t.accent,
+                        color: t.accentForeground,
+                      }
+                    : undefined
+                }
               >
                 {t.name}
               </button>
@@ -274,7 +284,7 @@ function SectionNavTab({
       onClick={onClick}
       className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-bold transition-all sm:text-sm ${
         active
-          ? "bg-[var(--team-accent)] text-background shadow-md"
+          ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow-md"
           : "text-muted-foreground hover:text-foreground"
       }`}
     >
@@ -300,7 +310,7 @@ function ViewTab({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm ${
         active
-          ? "bg-[var(--team-accent)] text-background"
+          ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)]"
           : "text-muted-foreground hover:text-foreground"
       }`}
     >

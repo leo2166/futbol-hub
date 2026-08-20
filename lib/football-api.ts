@@ -18,7 +18,8 @@ export interface TeamConfig {
   league: string // ESPN league slug, e.g. "esp.1"
   leagueName: string
   espnId: string // verified ESPN team id
-  accent: string // oklch accent used for per-team theming
+  accent: string // accent color used for per-team theming
+  accentForeground: string // text contrast color
 }
 
 // Team ids verified against the live /teams endpoints.
@@ -30,7 +31,8 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
     league: "esp.1",
     leagueName: "LaLiga",
     espnId: "83",
-    accent: "oklch(0.55 0.19 15)", // garnet/red
+    accent: "#a50044", // Granate blaugrana
+    accentForeground: "#ffffff", // Fuente en blanco
   },
   "real-madrid": {
     key: "real-madrid",
@@ -39,7 +41,8 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
     league: "esp.1",
     leagueName: "LaLiga",
     espnId: "86",
-    accent: "oklch(0.72 0.16 85)", // gold
+    accent: "#ffffff", // Blanco merengue
+    accentForeground: "#000000", // Fuente en negro
   },
   "inter-miami": {
     key: "inter-miami",
@@ -48,7 +51,8 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
     league: "usa.1",
     leagueName: "MLS",
     espnId: "20232",
-    accent: "oklch(0.68 0.19 350)", // miami pink
+    accent: "oklch(0.68 0.19 350)", // Miami pink
+    accentForeground: "#ffffff",
   },
 }
 
