@@ -399,11 +399,23 @@ function normalizeCompetition(
 ): Competition | null {
   const name = league?.name ?? fallbackName
   if (!name) return null
+  let slug = league?.slug ?? null
+  if (!slug) {
+    const lower = name.toLowerCase()
+    if (lower.includes("champion")) slug = "uefa.champions"
+    else if (lower.includes("laliga") || lower.includes("spanish")) slug = "esp.1"
+    else if (lower.includes("mls") || lower.includes("major league")) slug = "usa.1"
+  }
   return {
     name,
     short: shortCompetition(name),
-    slug: league?.slug ?? null,
-    isTournament: Boolean(league?.isTournament),
+    slug,
+    isTournament:
+      Boolean(league?.isTournament) ||
+      name.toLowerCase().includes("champion") ||
+      name.toLowerCase().includes("cup") ||
+      name.toLowerCase().includes("copa") ||
+      name.toLowerCase().includes("trofeo"),
   }
 }
 
@@ -460,14 +472,30 @@ async function fetchScheduleResolved(
       .then((data) => data.events ?? [])
       .catch(() => [] as EspnEvent[])
 
-    const [scoreboardEventsNested, extraScheduleEvents] = await Promise.all([
+    // 3) For European teams (Barça and Madrid), also fetch Champions League matches!
+    const uclPromise = isEuropean
+      ? fetchJson<EspnScoreboardResponse>(
+          `${SITE_BASE}/uefa.champions/scoreboard?dates=20260801-20270630&limit=500`,
+        )
+          .then((data) =>
+            (data.events ?? []).map((e) => ({
+              ...e,
+              league: { name: "UEFA Champions League", slug: "uefa.champions", isTournament: true },
+            })),
+          )
+          .catch(() => [] as EspnEvent[])
+      : Promise.resolve([] as EspnEvent[])
+
+    const [scoreboardEventsNested, extraScheduleEvents, uclEventsRaw] = await Promise.all([
       Promise.all(scoreboardPromises),
       teamSchedulePromise,
+      uclPromise,
     ])
 
     const allEventsRaw: EspnEvent[] = [
       ...scoreboardEventsNested.flat(),
       ...extraScheduleEvents,
+      ...uclEventsRaw,
     ]
 
     // Deduplicate by event ID and filter only matches for this team
@@ -481,7 +509,8 @@ async function fetchScheduleResolved(
       )
       if (!hasTeam) continue
 
-      const norm = normalizeEvent(e, team.leagueName)
+      const fallback = e.league?.name || team.leagueName
+      const norm = normalizeEvent(e, fallback)
       if (!norm) continue
 
       // Strictly ensure the match belongs to the NEW season
@@ -556,20 +585,51 @@ function isoToYmd(iso: string): string {
   ).padStart(2, "0")}`
 }
 
+let uclDatesCache: string[] | null = null
+async function getUclDates(): Promise<string[]> {
+  if (uclDatesCache && uclDatesCache.length > 0) return uclDatesCache
+  try {
+    const data = await fetchJson<EspnScoreboardResponse>(
+      `${SITE_BASE}/uefa.champions/scoreboard?dates=20260801-20270630&limit=500`,
+    )
+    const uniqueYmds = [...new Set((data.events ?? []).map((e) => e.date.slice(0, 10)))].sort()
+    uclDatesCache = uniqueYmds.map((d) => `${d}T12:00:00Z`)
+    return uclDatesCache
+  } catch (err) {
+    console.error("Error loading UCL dates:", err)
+    return []
+  }
+}
+
+export function teamHasChampionsLeague(teamKey: TeamKey): boolean {
+  return teamKey === "barcelona" || teamKey === "real-madrid"
+}
+
 // League-wide calendar via the scoreboard endpoint for the current season.
 export async function getLeagueCalendar(
   teamKey: TeamKey,
   dateYmd?: string,
+  competition?: string,
 ): Promise<LeagueCalendar> {
   const team = TEAMS[teamKey]
-  const base = `${SITE_BASE}/${team.league}/scoreboard`
+  const isUcl = competition === "uefa.champions"
+  const leagueSlug = isUcl ? "uefa.champions" : team.league
+  const base = `${SITE_BASE}/${leagueSlug}/scoreboard`
 
-  // 1) Pull the season calendar (list of fixture dates) + season label.
-  const meta = await fetchJson<EspnScoreboardResponse>(base)
-  const league = meta.leagues?.[0]
-  const leagueName = league?.name ? shortCompetition(league.name) : team.leagueName
-  const seasonLabel = team.league === "esp.1" ? "2026-27" : (league?.season?.displayName ?? "2026")
-  const dates = (league?.calendar ?? []).filter(Boolean)
+  let dates: string[] = []
+  let leagueName = isUcl ? "Champions League" : team.leagueName
+  let seasonLabel = "2026-27"
+
+  if (isUcl) {
+    dates = await getUclDates()
+  } else {
+    // 1) Pull the season calendar (list of fixture dates) + season label.
+    const meta = await fetchJson<EspnScoreboardResponse>(base)
+    const league = meta.leagues?.[0]
+    leagueName = league?.name ? shortCompetition(league.name) : team.leagueName
+    seasonLabel = team.league === "esp.1" ? "2026-27" : (league?.season?.displayName ?? "2026")
+    dates = (league?.calendar ?? []).filter(Boolean)
+  }
 
   // 2) Decide which date to show.
   let targetYmd = dateYmd
@@ -585,8 +645,14 @@ export async function getLeagueCalendar(
   // 3) Fetch the fixtures for that date.
   const scoreUrl = targetYmd ? `${base}?dates=${targetYmd}` : base
   const data = await fetchJson<EspnScoreboardResponse>(scoreUrl)
+  const fallbackComp = isUcl ? "UEFA Champions League" : leagueName
   const matches = (data.events ?? [])
-    .map((e) => normalizeEvent(e, leagueName))
+    .map((e) => {
+      if (isUcl && !e.league) {
+        e = { ...e, league: { name: "UEFA Champions League", slug: "uefa.champions", isTournament: true } }
+      }
+      return normalizeEvent(e, fallbackComp)
+    })
     .filter((m): m is Match => m !== null)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
@@ -606,10 +672,15 @@ function statText(entry: EspnStandingsEntry, name: string): string {
   return s?.displayValue ?? "0"
 }
 
-export async function getStandings(teamKey: TeamKey): Promise<StandingRow[]> {
+export async function getStandings(
+  teamKey: TeamKey,
+  competition?: string,
+): Promise<StandingRow[]> {
   const team = TEAMS[teamKey]
+  const isUcl = competition === "uefa.champions"
+  const leagueSlug = isUcl ? "uefa.champions" : team.league
   const seasonYear = 2026
-  const url = `${CORE_BASE}/${team.league}/standings?season=${seasonYear}`
+  const url = `${CORE_BASE}/${leagueSlug}/standings?season=${seasonYear}`
 
   try {
     const data = await fetchJson<EspnStandingsResponse>(url)
@@ -767,6 +838,28 @@ export interface MatchTimelineEvent {
   athleteName?: string
 }
 
+export interface MatchCommentary {
+  id: string
+  sequence: number
+  clock: string
+  text: string
+  type:
+    | "goal"
+    | "shot"
+    | "card-yellow"
+    | "card-red"
+    | "sub"
+    | "corner"
+    | "foul"
+    | "save"
+    | "woodwork"
+    | "offside"
+    | "whistle"
+    | "other"
+  teamName?: string
+  athleteName?: string
+}
+
 export interface MatchLineupPlayer {
   id: string
   name: string
@@ -779,6 +872,8 @@ export interface MatchDetail {
   id: string
   date: string
   venue: string | null
+  state: "pre" | "in" | "post"
+  clock?: string
   statusDetail: string | null
   completed: boolean
   competitionName: string | null
@@ -786,6 +881,7 @@ export interface MatchDetail {
   away: MatchSide
   stats: MatchStat[]
   events: MatchTimelineEvent[]
+  commentary: MatchCommentary[]
   homeLineup: MatchLineupPlayer[]
   awayLineup: MatchLineupPlayer[]
   recapArticle?: string
@@ -800,6 +896,8 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
         id: customMatch.id,
         date: customMatch.date,
         venue: customMatch.venue,
+        state: customMatch.state,
+        clock: undefined,
         statusDetail: customMatch.statusDetail || "Programado",
         completed: customMatch.completed,
         competitionName: customMatch.competition?.name || "Amistoso",
@@ -807,6 +905,7 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
         away: customMatch.away,
         stats: [],
         events: [],
+        commentary: [],
         homeLineup: [],
         awayLineup: [],
         recapArticle:
@@ -829,6 +928,10 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
     const home = normalizeSide(homeComp)
     const away = normalizeSide(awayComp)
 
+    const statusType = comp.status?.type
+    const state = (statusType?.state as Match["state"]) || (statusType?.completed ? "post" : "pre")
+    const clock = comp.status?.displayClock || header?.competitions?.[0]?.status?.displayClock || ""
+
     // Events / Timeline
     const rawEvents = data.keyEvents ?? []
     const events: MatchTimelineEvent[] = []
@@ -847,6 +950,65 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
         text: e.shortText || e.text || "",
         type,
         teamId: e.team?.id ? String(e.team.id) : undefined,
+        athleteName: athlete,
+      })
+    }
+
+    // Full Minute-by-Minute Commentary (narración oficial en español)
+    const rawCommentary = data.commentary ?? []
+    const commentary: MatchCommentary[] = []
+    for (const c of rawCommentary) {
+      const playType = (c.play?.type?.type || c.play?.type?.text || "").toLowerCase()
+      const text = c.text || ""
+      const textLower = text.toLowerCase()
+
+      let type: MatchCommentary["type"] = "other"
+      if (playType.includes("goal") || textLower.includes("gol de") || textLower.startsWith("¡gol") || textLower.includes("gol!")) {
+        type = "goal"
+      } else if (playType.includes("red") || textLower.includes("tarjeta roja")) {
+        type = "card-red"
+      } else if (playType.includes("yellow") || textLower.includes("tarjeta amarilla")) {
+        type = "card-yellow"
+      } else if (playType.includes("sub") || textLower.includes("cambio en") || textLower.includes("sustitución")) {
+        type = "sub"
+      } else if (playType.includes("corner") || textLower.includes("corner") || textLower.includes("córner")) {
+        type = "corner"
+      } else if (
+        playType.includes("woodwork") ||
+        textLower.includes("larguero") ||
+        textLower.includes("poste") ||
+        textLower.includes("al palo") ||
+        textLower.includes("al travesa")
+      ) {
+        type = "woodwork"
+      } else if (playType.includes("save") || textLower.includes("parada") || textLower.includes("remate parado")) {
+        type = "save"
+      } else if (playType.includes("shot") || textLower.includes("remate") || textLower.includes("disparo")) {
+        type = "shot"
+      } else if (playType.includes("foul") || textLower.includes("falta")) {
+        type = "foul"
+      } else if (playType.includes("offside") || textLower.includes("fuera de juego")) {
+        type = "offside"
+      } else if (
+        playType.includes("kickoff") ||
+        playType.includes("halftime") ||
+        playType.includes("fulltime") ||
+        textLower.includes("empieza") ||
+        textLower.includes("final")
+      ) {
+        type = "whistle"
+      }
+
+      const athlete = c.play?.participants?.[0]?.athlete?.displayName
+      const teamName = c.play?.team?.displayName
+
+      commentary.push({
+        id: String(c.play?.id || `seq-${c.sequence}` || Math.random()),
+        sequence: c.sequence ?? 0,
+        clock: c.time?.displayValue || c.play?.clock?.displayValue || "",
+        text,
+        type,
+        teamName,
         athleteName: athlete,
       })
     }
@@ -884,8 +1046,8 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
 
     // Rosters / Lineups
     const rosters = data.rosters ?? []
-    const homeRoster = rosters.find((r: any) => String(r.team?.id) === home.teamId)?.roster ?? []
-    const awayRoster = rosters.find((r: any) => String(r.team?.id) === away.teamId)?.roster ?? []
+    const homeRoster = rosters.find((r: any) => String(r.team?.id) === String(home.teamId))?.roster ?? []
+    const awayRoster = rosters.find((r: any) => String(r.team?.id) === String(away.teamId))?.roster ?? []
 
     const mapRoster = (list: any[]): MatchLineupPlayer[] =>
       list.map((item: any) => ({
@@ -900,13 +1062,16 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
       id: eventId,
       date: comp.date || new Date().toISOString(),
       venue: comp.venue?.fullName ?? null,
-      statusDetail: translateStatus(comp.status?.type?.shortDetail) || (comp.status?.type?.completed ? "Final" : "Programado"),
-      completed: Boolean(comp.status?.type?.completed),
+      state,
+      clock: clock || undefined,
+      statusDetail: translateStatus(statusType?.shortDetail) || (statusType?.completed ? "Final" : clock || "Programado"),
+      completed: Boolean(statusType?.completed),
       competitionName: header?.league?.name ? shortCompetition(header.league.name) : null,
       home,
       away,
       stats,
       events,
+      commentary,
       homeLineup: mapRoster(homeRoster),
       awayLineup: mapRoster(awayRoster),
       recapArticle: data.article?.story || undefined,
@@ -916,4 +1081,3 @@ export async function getMatchDetail(eventId: string, leagueSlug = "esp.1"): Pro
     return null
   }
 }
-

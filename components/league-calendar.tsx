@@ -16,14 +16,18 @@ function ymd(iso: string): string {
 
 export function LeagueCalendar({
   team,
+  competition,
+  title,
   onSelectMatch,
 }: {
   team: TeamConfig
-  onSelectMatch?: (matchId: string) => void
+  competition?: string
+  title?: string
+  onSelectMatch?: (matchId: string, league?: string) => void
 }) {
   // null date = let the API pick the next upcoming matchday.
   const [date, setDate] = useState<string | null>(null)
-  const query = useLeagueCalendar(team.key, date)
+  const query = useLeagueCalendar(team.key, date, competition)
   const data = query.data
 
   const dates = data?.dates ?? []
@@ -45,6 +49,8 @@ export function LeagueCalendar({
       })
     : "—"
 
+  const displayTitle = title || `Calendario · ${data?.leagueName || team.leagueName}`
+
   return (
     <section>
       <SectionTitle
@@ -57,7 +63,7 @@ export function LeagueCalendar({
           ) : null
         }
       >
-        Calendario · {team.leagueName}
+        {displayTitle}
       </SectionTitle>
 
       {/* Matchday navigator */}

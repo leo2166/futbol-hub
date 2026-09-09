@@ -12,21 +12,108 @@ import {
   MapPin,
   Calendar,
   AlertCircle,
+  RefreshCw,
+  ArrowRightLeft,
+  Flame,
 } from "lucide-react"
 import { useMatchDetail } from "@/lib/use-football"
+import type { MatchCommentary } from "@/lib/football-api"
 import { ErrorState, Skeleton } from "@/components/states"
+
+function CommentaryBadge({ type }: { type: MatchCommentary["type"] }) {
+  switch (type) {
+    case "goal":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-bold text-emerald-400 border border-emerald-500/30">
+          <span>⚽</span> GOL
+        </span>
+      )
+    case "card-red":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-rose-500/15 px-2 py-0.5 text-xs font-bold text-rose-400 border border-rose-500/30">
+          <span className="inline-block h-3 w-2 rounded-xs bg-rose-600" /> ROJA
+        </span>
+      )
+    case "card-yellow":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-400 border border-amber-500/30">
+          <span className="inline-block h-3 w-2 rounded-xs bg-amber-400" /> AMARILLA
+        </span>
+      )
+    case "sub":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-400 border border-sky-500/30">
+          <ArrowRightLeft className="h-3 w-3" /> CAMBIO
+        </span>
+      )
+    case "woodwork":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-300 border border-amber-500/30">
+          🥅 AL PALO
+        </span>
+      )
+    case "save":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          🧤 PARADA
+        </span>
+      )
+    case "corner":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          🚩 CÓRNER
+        </span>
+      )
+    case "shot":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          🎯 REMATE
+        </span>
+      )
+    case "foul":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          ⚠️ FALTA
+        </span>
+      )
+    case "offside":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          🚫 FUERA DE JUEGO
+        </span>
+      )
+    case "whistle":
+      return (
+        <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          ⏱️ TIEMPO
+        </span>
+      )
+    default:
+      return null
+  }
+}
 
 export function MatchDetailModal({
   matchId,
   league = "esp.1",
+  defaultTab,
   onClose,
 }: {
   matchId: string
   league?: string
+  defaultTab?: "stats" | "lineup" | "timeline" | "recap"
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<"stats" | "lineup" | "timeline" | "recap">("stats")
-  const { data: detail, isLoading, isError, refetch } = useMatchDetail(matchId, league)
+  const [tab, setTab] = useState<"stats" | "lineup" | "timeline" | "recap">(
+    defaultTab || "timeline",
+  )
+  const [timelineFilter, setTimelineFilter] = useState<"all" | "key">("all")
+  const { data: detail, isLoading, isError, isFetching, refetch } = useMatchDetail(matchId, league)
+
+  const isLive = detail?.state === "in" || (!detail?.completed && detail?.statusDetail?.toLowerCase().includes("vivo"))
+
+  // For live matches or general review, present latest actions first
+  const sortedCommentary = detail?.commentary ? [...detail.commentary].reverse() : []
 
   return (
     <div
@@ -44,9 +131,20 @@ export function MatchDetailModal({
       <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden z-10">
         {/* Header Bar */}
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5 bg-card/90 backdrop-blur-sm">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {detail?.competitionName || "Detalle del Partido"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {detail?.competitionName || "Detalle del Partido"}
+            </span>
+            {isLive && (
+              <span className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-400">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                </span>
+                EN DIRECTO
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             aria-label="Cerrar"
@@ -108,11 +206,10 @@ export function MatchDetailModal({
                     )}
 
                     <div className="mt-1.5 flex items-center gap-1.5">
-                      {detail.statusDetail?.toLowerCase().includes("in") ||
-                      detail.statusDetail?.includes("'") ? (
-                        <span className="flex items-center gap-1 text-xs font-semibold text-[var(--team-accent)] animate-pulse">
-                          <span className="h-1.5 w-1.5 rounded-full bg-[var(--team-accent)]" />
-                          {detail.statusDetail}
+                      {isLive ? (
+                        <span className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-0.5 text-xs font-bold text-rose-400 animate-pulse">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                          {detail.clock || detail.statusDetail || "EN VIVO"}
                         </span>
                       ) : (
                         <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -144,14 +241,14 @@ export function MatchDetailModal({
                   </div>
                 </div>
 
-                {/* Match Metadata */}
-                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-border/70 pt-3 text-xs text-muted-foreground">
+                {/* Match Metadata footer */}
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="h-3.5 w-3.5" />
                     <span>
                       {new Date(detail.date).toLocaleDateString("es-ES", {
                         weekday: "short",
-                        day: "2-digit",
+                        day: "numeric",
                         month: "short",
                         hour: "2-digit",
                         minute: "2-digit",
@@ -170,6 +267,17 @@ export function MatchDetailModal({
               {/* Navigation Tabs */}
               <div className="flex rounded-xl border border-border bg-muted/40 p-1">
                 <button
+                  onClick={() => setTab("timeline")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
+                    tab === "timeline"
+                      ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <ListOrdered className="h-3.5 w-3.5" />
+                  Minuto a Minuto
+                </button>
+                <button
                   onClick={() => setTab("stats")}
                   className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
                     tab === "stats"
@@ -179,17 +287,6 @@ export function MatchDetailModal({
                 >
                   <Activity className="h-3.5 w-3.5" />
                   Estadísticas
-                </button>
-                <button
-                  onClick={() => setTab("timeline")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
-                    tab === "timeline"
-                      ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)] shadow"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <ListOrdered className="h-3.5 w-3.5" />
-                  Goles & Eventos
                 </button>
                 <button
                   onClick={() => setTab("lineup")}
@@ -216,6 +313,165 @@ export function MatchDetailModal({
                   </button>
                 )}
               </div>
+
+              {/* Tab: Minuto a Minuto / Cronología */}
+              {tab === "timeline" && (
+                <div className="space-y-4">
+                  {/* Live Status Header if active */}
+                  {isLive && (
+                    <div className="flex items-center justify-between rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-xs">
+                      <div className="flex items-center gap-2 text-rose-400 font-semibold">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                        </span>
+                        <span>EN VIVO · Actualización automática en segundo plano (cada 15s)</span>
+                      </div>
+                      <button
+                        onClick={() => refetch()}
+                        disabled={isFetching}
+                        className="flex items-center gap-1 rounded-md bg-card/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-card transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+                        <span>Refrescar</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Filter Sub-toggle */}
+                  <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+                    <div className="inline-flex rounded-lg border border-border bg-card/60 p-0.5">
+                      <button
+                        onClick={() => setTimelineFilter("all")}
+                        className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                          timelineFilter === "all"
+                            ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Relato Completo ({sortedCommentary.length})
+                      </button>
+                      <button
+                        onClick={() => setTimelineFilter("key")}
+                        className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                          timelineFilter === "key"
+                            ? "bg-[var(--team-accent)] text-[var(--team-accent-foreground)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Goles y Tarjetas ({detail.events.length})
+                      </button>
+                    </div>
+
+                    <span className="text-[11px] text-muted-foreground">
+                      {timelineFilter === "all" ? "Más reciente arriba" : "Orden cronológico"}
+                    </span>
+                  </div>
+
+                  {/* View: All Commentary */}
+                  {timelineFilter === "all" && (
+                    <div className="space-y-2.5">
+                      {sortedCommentary.length > 0 ? (
+                        sortedCommentary.map((c) => (
+                          <div
+                            key={c.id}
+                            className={`flex items-start gap-3 rounded-xl border p-3 text-sm transition-colors ${
+                              c.type === "goal"
+                                ? "border-emerald-500/40 bg-emerald-500/10"
+                                : c.type === "card-red"
+                                ? "border-rose-500/40 bg-rose-500/10"
+                                : c.type === "card-yellow"
+                                ? "border-amber-500/40 bg-amber-500/10"
+                                : c.type === "woodwork"
+                                ? "border-amber-500/30 bg-card/70"
+                                : "border-border/70 bg-card/50"
+                            }`}
+                          >
+                            <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+                              {c.clock || "—"}
+                            </span>
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <CommentaryBadge type={c.type} />
+                                {c.athleteName && (
+                                  <span className="text-xs font-bold text-foreground">
+                                    {c.athleteName}
+                                  </span>
+                                )}
+                                {c.teamName && (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    ({c.teamName})
+                                  </span>
+                                )}
+                              </div>
+                              <p className="font-normal text-foreground/90 text-xs leading-relaxed">
+                                {c.text}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : detail.events.length > 0 ? (
+                        detail.events.map((evt) => (
+                          <div
+                            key={evt.id}
+                            className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/50 p-3 text-sm"
+                          >
+                            <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+                              {evt.clock || "-"}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground text-xs leading-relaxed">
+                                {evt.text}
+                              </p>
+                              {evt.athleteName && (
+                                <span className="text-[11px] font-bold text-[var(--team-accent)]">
+                                  {evt.athleteName}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                          No hay comentarios registrados por el momento.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* View: Key Events Only */}
+                  {timelineFilter === "key" && (
+                    <div className="space-y-2.5">
+                      {detail.events.length > 0 ? (
+                        detail.events.map((evt) => (
+                          <div
+                            key={evt.id}
+                            className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/50 p-3 text-sm"
+                          >
+                            <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+                              {evt.clock || "-"}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground text-xs leading-relaxed">
+                                {evt.text}
+                              </p>
+                              {evt.athleteName && (
+                                <span className="text-[11px] font-bold text-[var(--team-accent)]">
+                                  {evt.athleteName}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                          No hay incidencias o goles registrados todavía.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Tab 1: Estadísticas */}
               {tab === "stats" && (
@@ -260,38 +516,6 @@ export function MatchDetailModal({
                   ) : (
                     <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
                       Las estadísticas detalladas estarán disponibles durante y después del partido.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Tab 2: Cronología / Goles */}
-              {tab === "timeline" && (
-                <div className="space-y-2.5">
-                  {detail.events.length > 0 ? (
-                    detail.events.map((evt) => (
-                      <div
-                        key={evt.id}
-                        className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/50 p-3 text-sm"
-                      >
-                        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
-                          {evt.clock || "-"}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground text-xs leading-relaxed">
-                            {evt.text}
-                          </p>
-                          {evt.athleteName && (
-                            <span className="text-[11px] font-bold text-[var(--team-accent)]">
-                              {evt.athleteName}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-                      No hay incidencias o goles registrados todavía.
                     </div>
                   )}
                 </div>

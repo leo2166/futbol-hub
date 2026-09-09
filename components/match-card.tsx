@@ -59,7 +59,7 @@ export function MatchCard({
   match: Match
   showCompetition?: boolean
   highlightTeamId?: string
-  onSelectMatch?: (matchId: string) => void
+  onSelectMatch?: (matchId: string, league?: string) => void
 }) {
   const showScore = match.completed || match.state === "in"
   const kickoff = new Date(match.date)
@@ -74,7 +74,7 @@ export function MatchCard({
 
   return (
     <div
-      onClick={() => onSelectMatch?.(match.id)}
+      onClick={() => onSelectMatch?.(match.id, match.competition?.slug ?? undefined)}
       className={`rounded-xl border border-border bg-card/60 p-4 backdrop-blur-sm transition-all hover:border-[var(--team-accent)]/60 hover:bg-card/80 ${
         onSelectMatch ? "cursor-pointer hover:scale-[1.01] hover:shadow-md" : ""
       }`}

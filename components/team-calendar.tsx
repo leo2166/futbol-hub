@@ -13,7 +13,7 @@ export function TeamCalendar({
   onSelectMatch,
 }: {
   data: TeamData
-  onSelectMatch?: (matchId: string) => void
+  onSelectMatch?: (matchId: string, league?: string) => void
 }) {
   const [filter, setFilter] = useState<string>("all")
 

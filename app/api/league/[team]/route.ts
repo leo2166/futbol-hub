@@ -11,9 +11,11 @@ export async function GET(
   if (!(team in TEAMS)) {
     return NextResponse.json({ error: "Unknown team" }, { status: 404 })
   }
-  const date = new URL(req.url).searchParams.get("date") ?? undefined
+  const url = new URL(req.url)
+  const date = url.searchParams.get("date") ?? undefined
+  const competition = url.searchParams.get("competition") ?? undefined
   try {
-    const data = await getLeagueCalendar(team as TeamKey, date || undefined)
+    const data = await getLeagueCalendar(team as TeamKey, date || undefined, competition)
     return NextResponse.json(data)
   } catch (err) {
     console.log("[v0] league route error:", (err as Error).message)

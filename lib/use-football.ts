@@ -30,23 +30,38 @@ export function useTeamData(teamKey: TeamKey) {
   return useQuery({
     queryKey: ["team", teamKey],
     queryFn: () => getJson<TeamData>(`/api/team/${teamKey}`),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const hasLive = data?.matches?.some((m) => m.state === "in")
+      return hasLive ? 20000 : false
+    },
   })
 }
 
-export function useStandings(teamKey: TeamKey) {
+export function useStandings(teamKey: TeamKey, competition?: string) {
   return useQuery({
-    queryKey: ["standings", teamKey],
-    queryFn: () => getJson<StandingRow[]>(`/api/standings/${teamKey}`),
-  })
-}
-
-export function useLeagueCalendar(teamKey: TeamKey, date: string | null) {
-  return useQuery({
-    queryKey: ["league", teamKey, date ?? "next"],
+    queryKey: ["standings", teamKey, competition ?? "default"],
     queryFn: () =>
-      getJson<LeagueCalendar>(
-        `/api/league/${teamKey}${date ? `?date=${date}` : ""}`,
+      getJson<StandingRow[]>(
+        `/api/standings/${teamKey}${competition ? `?competition=${competition}` : ""}`,
       ),
+  })
+}
+
+export function useLeagueCalendar(
+  teamKey: TeamKey,
+  date: string | null,
+  competition?: string,
+) {
+  return useQuery({
+    queryKey: ["league", teamKey, competition ?? "default", date ?? "next"],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (date) params.set("date", date)
+      if (competition) params.set("competition", competition)
+      const qs = params.toString()
+      return getJson<LeagueCalendar>(`/api/league/${teamKey}${qs ? `?${qs}` : ""}`)
+    },
     placeholderData: keepPreviousData, // keep matchday visible while navigating
   })
 }
@@ -70,6 +85,18 @@ export function useMatchDetail(matchId: string | null, league = "esp.1") {
     queryKey: ["match", matchId, league],
     queryFn: () => (matchId ? getJson<MatchDetail>(`/api/match/${matchId}?league=${league}`) : null),
     enabled: Boolean(matchId),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (!data) return false
+      // If the match is in progress, poll automatically every 15 seconds
+      if (
+        data.state === "in" ||
+        (!data.completed && data.statusDetail?.toLowerCase().includes("vivo"))
+      ) {
+        return 15000
+      }
+      return false
+    },
   })
 }
 

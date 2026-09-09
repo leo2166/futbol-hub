@@ -36,7 +36,7 @@ export function CountdownTimer({
 }: {
   match?: Match
   teamName: string
-  onSelectMatch?: (matchId: string) => void
+  onSelectMatch?: (matchId: string, league?: string) => void
 }) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(null)
   const [reminded, setReminded] = useState(false)
@@ -64,7 +64,7 @@ export function CountdownTimer({
 
   return (
     <div
-      onClick={() => onSelectMatch?.(match.id)}
+      onClick={() => onSelectMatch?.(match.id, match.competition?.slug ?? undefined)}
       className="mb-8 relative overflow-hidden rounded-2xl border border-[var(--team-accent)]/30 bg-card/70 p-5 backdrop-blur-md transition-all hover:border-[var(--team-accent)]/60 cursor-pointer shadow-lg shadow-[var(--team-accent)]/5"
     >
       {/* Background Accent Gradient */}
