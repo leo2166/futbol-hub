@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
-import { Bell, Clock, Sparkles } from "lucide-react"
+import { Bell, BellOff, Check, Clock, Sparkles } from "lucide-react"
 import type { Match } from "@/lib/football-api"
-import { sendMatchReminder } from "@/lib/notifications"
+import { scheduleMatchReminder, cancelMatchReminder, registerServiceWorker } from "@/lib/notifications"
 
 interface TimeLeft {
   days: number
@@ -29,6 +29,8 @@ function calculateTimeLeft(targetDate: string): TimeLeft {
   }
 }
 
+type ReminderState = "idle" | "saving" | "saved" | "cancelled" | "denied"
+
 export function CountdownTimer({
   match,
   teamName,
@@ -39,7 +41,16 @@ export function CountdownTimer({
   onSelectMatch?: (matchId: string, league?: string) => void
 }) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(null)
-  const [reminded, setReminded] = useState(false)
+  const [reminderState, setReminderState] = useState<ReminderState>("idle")
+  const [swReady, setSwReady] = useState(false)
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Register the Service Worker early so it's ready when user hits the bell
+  useEffect(() => {
+    registerServiceWorker().then((reg) => {
+      if (reg) setSwReady(true)
+    })
+  }, [])
 
   useEffect(() => {
     if (!match?.date) return
@@ -52,15 +63,65 @@ export function CountdownTimer({
     return () => clearInterval(timer)
   }, [match?.date])
 
+  // Clear feedback timer on unmount
+  useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current) }, [])
+
   if (!match || !timeLeft || timeLeft.isLiveOrPast) return null
 
-  const handleNotify = (e: React.MouseEvent) => {
+  const matchId    = match.id
+  const matchTitle = `${match.home.name} vs ${match.away.name}`
+  const kickoff    = new Date(match.date).getTime()
+  const competition = match.competition?.name
+
+  const handleToggleReminder = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    const title = `${match.home.name} vs ${match.away.name}`
-    sendMatchReminder(title, match.date, teamName)
-    setReminded(true)
-    setTimeout(() => setReminded(false), 3000)
+
+    // Cancel if already saved
+    if (reminderState === "saved") {
+      await cancelMatchReminder(matchId)
+      setReminderState("cancelled")
+      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 2500)
+      return
+    }
+
+    setReminderState("saving")
+
+    const result = await scheduleMatchReminder({
+      id: matchId,
+      matchTitle,
+      teamName,
+      kickoff,
+      competition,
+    })
+
+    if (result.ok) {
+      setReminderState("saved")
+      // Keep "saved" state persistent — user can cancel with another click
+    } else if (result.error === "Permiso denegado") {
+      setReminderState("denied")
+      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 4000)
+    } else {
+      // Fallback (tab must be open)
+      setReminderState("saved")
+    }
   }
+
+  // Determine bell button appearance
+  const bellLabel =
+    reminderState === "saved"     ? "Cancelar recordatorio" :
+    reminderState === "saving"    ? "Guardando…" :
+    reminderState === "cancelled" ? "Recordatorio cancelado" :
+    reminderState === "denied"    ? "Activa las notificaciones" :
+    "Recordatorio 5 min antes"
+
+  const bellClass =
+    reminderState === "saved"
+      ? "border-[var(--team-accent)]/60 bg-[var(--team-accent)]/15 text-[var(--team-accent)]"
+      : reminderState === "denied"
+      ? "border-rose-500/50 bg-rose-500/10 text-rose-400"
+      : reminderState === "cancelled"
+      ? "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
+      : "border-border bg-card/60 text-muted-foreground hover:text-[var(--team-accent)] hover:border-[var(--team-accent)]"
 
   return (
     <div
@@ -123,8 +184,8 @@ export function CountdownTimer({
           </span>
         </div>
 
-        {/* Countdown Ticker */}
-        <div className="flex items-center gap-2">
+        {/* Countdown Ticker + Bell */}
+        <div className="flex flex-col items-center gap-3">
           <div className="flex items-center gap-1.5 text-center">
             <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
               <span className="font-mono text-base font-bold text-foreground tabular-nums">
@@ -161,20 +222,37 @@ export function CountdownTimer({
                 seg
               </span>
             </div>
+
+            {/* Bell button */}
+            <button
+              onClick={handleToggleReminder}
+              disabled={reminderState === "saving"}
+              className={`rounded-xl border p-2.5 transition-all ml-1 ${bellClass}`}
+              title={bellLabel}
+              aria-label={bellLabel}
+            >
+              {reminderState === "saved" ? (
+                <Check className="h-4 w-4" />
+              ) : reminderState === "cancelled" ? (
+                <BellOff className="h-4 w-4" />
+              ) : (
+                <Bell className={`h-4 w-4 ${reminderState === "saving" ? "animate-pulse" : ""}`} />
+              )}
+            </button>
           </div>
 
-          {/* Reminder Bell Button */}
-          <button
-            onClick={handleNotify}
-            className={`rounded-xl border p-2.5 transition-all ${
-              reminded
-                ? "border-green-500/50 bg-green-500/20 text-green-400"
-                : "border-border bg-card/60 text-muted-foreground hover:text-[var(--team-accent)] hover:border-[var(--team-accent)]"
-            }`}
-            title="Activar Recordatorio"
-          >
-            <Bell className="h-4 w-4" />
-          </button>
+          {/* Status message below the ticker */}
+          {reminderState !== "idle" && reminderState !== "saving" && (
+            <p className={`text-[10px] font-semibold text-center transition-opacity ${
+              reminderState === "saved"     ? "text-[var(--team-accent)]" :
+              reminderState === "denied"    ? "text-rose-400" :
+              "text-muted-foreground"
+            }`}>
+              {reminderState === "saved"     && "🔔 Alarma activa · 5 min antes del partido"}
+              {reminderState === "cancelled" && "🔕 Recordatorio cancelado"}
+              {reminderState === "denied"    && "⚠️ Permite notificaciones en el navegador"}
+            </p>
+          )}
         </div>
       </div>
     </div>

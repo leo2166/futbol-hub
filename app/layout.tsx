@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { QueryProvider } from '@/components/query-provider'
+import { ServiceWorkerRegistrar } from '@/components/service-worker-registrar'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
   description:
     'Próximos partidos, resultados recientes y clasificación en vivo del FC Barcelona, Real Madrid e Inter Miami CF, con datos de ESPN.',
   generator: 'v0.app',
+  manifest: '/manifest.json',
   icons: {
     icon: [
       {
@@ -48,6 +50,8 @@ export default function RootLayout({
     >
       <body className="font-sans antialiased">
         <QueryProvider>{children}</QueryProvider>
+        {/* Registers the Service Worker for background notifications */}
+        <ServiceWorkerRegistrar />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
