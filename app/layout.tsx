@@ -9,9 +9,9 @@ const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
-  title: 'Mis Equipos · Barça, Real Madrid e Inter Miami',
+  title: 'Mis Equipos · Barça e Inter Miami',
   description:
-    'Próximos partidos, resultados recientes y clasificación en vivo del FC Barcelona, Real Madrid e Inter Miami CF, con datos de ESPN.',
+    'Próximos partidos, resultados recientes y clasificación en vivo del FC Barcelona e Inter Miami CF, con datos de ESPN.',
   generator: 'v0.app',
   manifest: '/manifest.json',
   icons: {
