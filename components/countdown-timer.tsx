@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
-import { Bell, BellOff, Check, Clock, Sparkles } from "lucide-react"
+import { Bell, BellOff, BellRing, Check, Sparkles } from "lucide-react"
 import type { Match } from "@/lib/football-api"
 import { scheduleMatchReminder, cancelMatchReminder, registerServiceWorker } from "@/lib/notifications"
 
@@ -19,7 +19,6 @@ function calculateTimeLeft(targetDate: string): TimeLeft {
   if (diff <= 0) {
     return { days: 0, hours: 0, minutes: 0, seconds: 0, isLiveOrPast: true }
   }
-
   return {
     days: Math.floor(diff / (1000 * 60 * 60 * 24)),
     hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
@@ -42,45 +41,39 @@ export function CountdownTimer({
 }) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(null)
   const [reminderState, setReminderState] = useState<ReminderState>("idle")
-  const [swReady, setSwReady] = useState(false)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Register the Service Worker early so it's ready when user hits the bell
+  // Registrar Service Worker al montar
   useEffect(() => {
-    registerServiceWorker().then((reg) => {
-      if (reg) setSwReady(true)
-    })
+    registerServiceWorker()
   }, [])
 
   useEffect(() => {
     if (!match?.date) return
     setTimeLeft(calculateTimeLeft(match.date))
-
     const timer = setInterval(() => {
       setTimeLeft(calculateTimeLeft(match.date))
     }, 1000)
-
     return () => clearInterval(timer)
   }, [match?.date])
 
-  // Clear feedback timer on unmount
+  // Limpiar timers al desmontar
   useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current) }, [])
 
   if (!match || !timeLeft || timeLeft.isLiveOrPast) return null
 
-  const matchId    = match.id
-  const matchTitle = `${match.home.name} vs ${match.away.name}`
-  const kickoff    = new Date(match.date).getTime()
+  const matchId     = match.id
+  const matchTitle  = `${match.home.name} vs ${match.away.name}`
+  const kickoff     = new Date(match.date).getTime()
   const competition = match.competition?.name
 
   const handleToggleReminder = async (e: React.MouseEvent) => {
     e.stopPropagation()
 
-    // Cancel if already saved
     if (reminderState === "saved") {
       await cancelMatchReminder(matchId)
       setReminderState("cancelled")
-      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 2500)
+      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 3000)
       return
     }
 
@@ -96,32 +89,18 @@ export function CountdownTimer({
 
     if (result.ok) {
       setReminderState("saved")
-      // Keep "saved" state persistent — user can cancel with another click
     } else if (result.error === "Permiso denegado") {
       setReminderState("denied")
-      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 4000)
+      feedbackTimer.current = setTimeout(() => setReminderState("idle"), 5000)
     } else {
-      // Fallback (tab must be open)
       setReminderState("saved")
     }
   }
 
-  // Determine bell button appearance
-  const bellLabel =
-    reminderState === "saved"     ? "Cancelar recordatorio" :
-    reminderState === "saving"    ? "Guardando…" :
-    reminderState === "cancelled" ? "Recordatorio cancelado" :
-    reminderState === "denied"    ? "Activa las notificaciones" :
-    "Recordatorio 5 min antes"
-
-  const bellClass =
-    reminderState === "saved"
-      ? "border-[var(--team-accent)]/60 bg-[var(--team-accent)]/15 text-[var(--team-accent)]"
-      : reminderState === "denied"
-      ? "border-rose-500/50 bg-rose-500/10 text-rose-400"
-      : reminderState === "cancelled"
-      ? "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
-      : "border-border bg-card/60 text-muted-foreground hover:text-[var(--team-accent)] hover:border-[var(--team-accent)]"
+  const isSaved     = reminderState === "saved"
+  const isSaving    = reminderState === "saving"
+  const isCancelled = reminderState === "cancelled"
+  const isDenied    = reminderState === "denied"
 
   return (
     <div
@@ -136,7 +115,7 @@ export function CountdownTimer({
       />
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Match Header */}
+        {/* Info del partido */}
         <div className="flex flex-col items-center sm:items-start text-center sm:text-left gap-1.5">
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[var(--team-accent)]">
             <Sparkles className="h-3.5 w-3.5" />
@@ -146,14 +125,7 @@ export function CountdownTimer({
           <div className="flex items-center gap-2.5 my-1">
             <div className="relative h-6 w-6">
               {match.home.logo && (
-                <Image
-                  src={match.home.logo}
-                  alt={match.home.name}
-                  fill
-                  sizes="24px"
-                  className="object-contain"
-                  unoptimized
-                />
+                <Image src={match.home.logo} alt={match.home.name} fill sizes="24px" className="object-contain" unoptimized />
               )}
             </div>
             <span className="text-sm font-bold text-foreground">
@@ -161,98 +133,86 @@ export function CountdownTimer({
             </span>
             <div className="relative h-6 w-6">
               {match.away.logo && (
-                <Image
-                  src={match.away.logo}
-                  alt={match.away.name}
-                  fill
-                  sizes="24px"
-                  className="object-contain"
-                  unoptimized
-                />
+                <Image src={match.away.logo} alt={match.away.name} fill sizes="24px" className="object-contain" unoptimized />
               )}
             </div>
           </div>
 
           <span className="text-xs text-muted-foreground">
             {match.competition?.name} · {new Date(match.date).toLocaleDateString("es-ES", {
-              weekday: "short",
-              day: "numeric",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
+              weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
             })}
           </span>
         </div>
 
-        {/* Countdown Ticker + Bell */}
-        <div className="flex flex-col items-center gap-3">
+        {/* Contador + Botón de Alarma */}
+        <div className="flex flex-col items-center gap-3 w-full sm:w-auto">
+          {/* Dígitos del contador */}
           <div className="flex items-center gap-1.5 text-center">
-            <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
-              <span className="font-mono text-base font-bold text-foreground tabular-nums">
-                {String(timeLeft.days).padStart(2, "0")}
-              </span>
-              <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
-                días
-              </span>
-            </div>
-            <span className="font-bold text-muted-foreground">:</span>
-            <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
-              <span className="font-mono text-base font-bold text-foreground tabular-nums">
-                {String(timeLeft.hours).padStart(2, "0")}
-              </span>
-              <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
-                hrs
-              </span>
-            </div>
-            <span className="font-bold text-muted-foreground">:</span>
-            <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
-              <span className="font-mono text-base font-bold text-foreground tabular-nums">
-                {String(timeLeft.minutes).padStart(2, "0")}
-              </span>
-              <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
-                min
-              </span>
-            </div>
-            <span className="font-bold text-muted-foreground">:</span>
-            <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
-              <span className="font-mono text-base font-bold text-[var(--team-accent)] tabular-nums">
-                {String(timeLeft.seconds).padStart(2, "0")}
-              </span>
-              <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
-                seg
-              </span>
-            </div>
-
-            {/* Bell button */}
-            <button
-              onClick={handleToggleReminder}
-              disabled={reminderState === "saving"}
-              className={`rounded-xl border p-2.5 transition-all ml-1 ${bellClass}`}
-              title={bellLabel}
-              aria-label={bellLabel}
-            >
-              {reminderState === "saved" ? (
-                <Check className="h-4 w-4" />
-              ) : reminderState === "cancelled" ? (
-                <BellOff className="h-4 w-4" />
-              ) : (
-                <Bell className={`h-4 w-4 ${reminderState === "saving" ? "animate-pulse" : ""}`} />
-              )}
-            </button>
+            {[
+              { value: timeLeft.days,    label: "días" },
+              { value: timeLeft.hours,   label: "hrs"  },
+              { value: timeLeft.minutes, label: "min"  },
+              { value: timeLeft.seconds, label: "seg", accent: true },
+            ].map((unit, i) => (
+              <div key={unit.label} className="flex items-center gap-1.5">
+                {i > 0 && <span className="font-bold text-muted-foreground">:</span>}
+                <div className="rounded-xl border border-border/80 bg-background/60 px-2.5 py-1.5 min-w-[42px]">
+                  <span className={`font-mono text-base font-bold tabular-nums ${unit.accent ? "text-[var(--team-accent)]" : "text-foreground"}`}>
+                    {String(unit.value).padStart(2, "0")}
+                  </span>
+                  <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
+                    {unit.label}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Status message below the ticker */}
-          {reminderState !== "idle" && reminderState !== "saving" && (
-            <p className={`text-[10px] font-semibold text-center transition-opacity ${
-              reminderState === "saved"     ? "text-[var(--team-accent)]" :
-              reminderState === "denied"    ? "text-rose-400" :
-              "text-muted-foreground"
-            }`}>
-              {reminderState === "saved"     && "🔔 Alarma activa · 5 min antes del partido"}
-              {reminderState === "cancelled" && "🔕 Recordatorio cancelado"}
-              {reminderState === "denied"    && "⚠️ Permite notificaciones en el navegador"}
-            </p>
-          )}
+          {/* ── BOTÓN DE ALARMA PROMINENTE ── */}
+          <button
+            onClick={handleToggleReminder}
+            disabled={isSaving}
+            aria-label={isSaved ? "Cancelar alarma" : "Activar alarma 5 min antes"}
+            className={`
+              relative w-full flex items-center justify-center gap-2
+              rounded-xl border px-4 py-2.5 text-sm font-bold
+              transition-all duration-300 select-none overflow-hidden
+              ${isSaved
+                ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-400 shadow-lg shadow-emerald-500/20"
+                : isDenied
+                ? "border-rose-500/60 bg-rose-500/10 text-rose-400"
+                : isCancelled
+                ? "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
+                : isSaving
+                ? "border-[var(--team-accent)]/40 bg-[var(--team-accent)]/10 text-[var(--team-accent)] opacity-70"
+                : "border-border bg-card/80 text-muted-foreground hover:border-[var(--team-accent)] hover:text-[var(--team-accent)] hover:bg-[var(--team-accent)]/10 active:scale-95"
+              }
+            `}
+          >
+            {/* Anillo de pulso verde cuando activo */}
+            {isSaved && (
+              <span className="absolute inset-0 rounded-xl animate-ping bg-emerald-500/20 pointer-events-none" />
+            )}
+
+            {/* Icono que cambia según estado */}
+            {isSaved     ? <BellRing className="h-4 w-4 shrink-0 animate-bounce" /> :
+             isCancelled ? <BellOff  className="h-4 w-4 shrink-0" /> :
+             isSaving    ? <Bell     className="h-4 w-4 shrink-0 animate-pulse" /> :
+                           <Bell     className="h-4 w-4 shrink-0" />}
+
+            {/* Texto claro según estado */}
+            <span>
+              {isSaved     && "🔔 Alarma activa — toca para cancelar"}
+              {isSaving    && "Guardando alarma…"}
+              {isCancelled && "🔕 Alarma cancelada"}
+              {isDenied    && "⚠️ Activa notificaciones en el navegador"}
+              {!isSaved && !isSaving && !isCancelled && !isDenied && "Activar alarma 5 min antes"}
+            </span>
+
+            {/* ✓ al final cuando activo */}
+            {isSaved && <Check className="h-4 w-4 shrink-0 ml-auto" />}
+          </button>
         </div>
       </div>
     </div>
