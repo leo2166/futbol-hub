@@ -9,7 +9,7 @@
 const SITE_BASE = "https://site.web.api.espn.com/apis/site/v2/sports/soccer"
 const CORE_BASE = "https://site.web.api.espn.com/apis/v2/sports/soccer"
 
-export type TeamKey = "barcelona" | "real-madrid" | "inter-miami"
+export type TeamKey = "barcelona" | "inter-miami"
 
 export interface TeamConfig {
   key: TeamKey
@@ -34,16 +34,6 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
     accent: "#a50044", // Granate blaugrana
     accentForeground: "#ffffff", // Fuente en blanco
   },
-  "real-madrid": {
-    key: "real-madrid",
-    name: "Real Madrid",
-    shortName: "Madrid",
-    league: "esp.1",
-    leagueName: "LaLiga",
-    espnId: "86",
-    accent: "#ffffff", // Blanco merengue
-    accentForeground: "#000000", // Fuente en negro
-  },
   "inter-miami": {
     key: "inter-miami",
     name: "Inter Miami CF",
@@ -56,43 +46,11 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
   },
 }
 
-export const TEAM_ORDER: TeamKey[] = ["barcelona", "real-madrid", "inter-miami"]
+export const TEAM_ORDER: TeamKey[] = ["barcelona", "inter-miami"]
 
 // Partidos o torneos verificados oficiales que pueden no estar indexados en la API pública de ESPN
 export const VERIFIED_EXTRA_MATCHES: Record<TeamKey, Match[]> = {
-  barcelona: [
-    {
-      id: "custom-gamper-2026",
-      date: "2026-08-19T18:00:00.000Z", // 20:00 CEST (18:00 UTC)
-      venue: "Spotify Camp Nou",
-      state: "pre",
-      statusDetail: "Programado",
-      completed: false,
-      competition: {
-        name: "Trofeo Joan Gamper",
-        short: "Trofeo Gamper",
-        slug: "club.friendly",
-        isTournament: true,
-      },
-      home: {
-        teamId: "83",
-        name: "Barcelona",
-        logo: "https://a.espncdn.com/i/teamlogos/soccer/500/83.png",
-        score: null,
-        winner: null,
-        isHome: true,
-      },
-      away: {
-        teamId: "10207",
-        name: "Al Ahly",
-        logo: "https://a.espncdn.com/i/teamlogos/soccer/500/10207.png",
-        score: null,
-        winner: null,
-        isHome: false,
-      },
-    },
-  ],
-  "real-madrid": [],
+  barcelona: [],
   "inter-miami": [],
 }
 
@@ -472,19 +430,50 @@ async function fetchScheduleResolved(
       .then((data) => data.events ?? [])
       .catch(() => [] as EspnEvent[])
 
-    // 3) For European teams (Barça and Madrid), also fetch Champions League matches!
-    const uclPromise = isEuropean
-      ? fetchJson<EspnScoreboardResponse>(
+    // 3) For Barcelona: también buscar partidos de Champions League con múltiples estrategias
+    let uclPromise: Promise<EspnEvent[]> = Promise.resolve([] as EspnEvent[])
+    if (isEuropean && team.espnId === "83") { // Solo Barcelona
+      uclPromise = (async () => {
+        const tagUcl = (events: EspnEvent[]) =>
+          events.map((e) => ({
+            ...e,
+            league: { name: "UEFA Champions League", slug: "uefa.champions", isTournament: true },
+          }))
+
+        // Estrategia A: scoreboard por rango largo
+        const stratA = fetchJson<EspnScoreboardResponse>(
           `${SITE_BASE}/uefa.champions/scoreboard?dates=20260801-20270630&limit=500`,
         )
-          .then((data) =>
-            (data.events ?? []).map((e) => ({
+          .then((d) => tagUcl(d.events ?? []))
+          .catch(() => [] as EspnEvent[])
+
+        // Estrategia B: schedule del equipo en la UCL directamente
+        const stratB = fetchJson<EspnScheduleResponse>(
+          `${SITE_BASE}/uefa.champions/teams/${team.espnId}/schedule?season=2026`,
+        )
+          .then((d) => tagUcl(d.events ?? []))
+          .catch(() => [] as EspnEvent[])
+
+        // Estrategia C: schedule general cruzado (ya incluido vía teamSchedulePromise pero anotamos UCL)
+        const stratC = fetchJson<EspnScheduleResponse>(
+          `${SITE_BASE}/all/teams/${team.espnId}/schedule?season=2026`,
+        )
+          .then((d) =>
+            (d.events ?? []).filter(
+              (e) =>
+                e.league?.slug === "uefa.champions" ||
+                e.league?.name?.toLowerCase().includes("champion"),
+            ).map((e) => ({
               ...e,
               league: { name: "UEFA Champions League", slug: "uefa.champions", isTournament: true },
-            })),
+            }))
           )
           .catch(() => [] as EspnEvent[])
-      : Promise.resolve([] as EspnEvent[])
+
+        const [a, b, c] = await Promise.all([stratA, stratB, stratC])
+        return [...a, ...b, ...c]
+      })()
+    }
 
     const [scoreboardEventsNested, extraScheduleEvents, uclEventsRaw] = await Promise.all([
       Promise.all(scoreboardPromises),
@@ -520,11 +509,10 @@ async function fetchScheduleResolved(
       }
     }
 
-    // Incorporate any verified official extra matches (e.g. Gamper Trophy, preseason friendlies) not in ESPN
+    // Incorporate any verified official extra matches not indexed in ESPN
     const extras = VERIFIED_EXTRA_MATCHES[team.key] || []
     for (const extra of extras) {
       if (!seenIds.has(extra.id)) {
-        // Check if there is already a match on the same date with the same opponent
         const alreadyPresent = teamMatches.some(
           (m) =>
             m.date.slice(0, 10) === extra.date.slice(0, 10) &&
@@ -602,7 +590,7 @@ async function getUclDates(): Promise<string[]> {
 }
 
 export function teamHasChampionsLeague(teamKey: TeamKey): boolean {
-  return teamKey === "barcelona" || teamKey === "real-madrid"
+  return teamKey === "barcelona"
 }
 
 // League-wide calendar via the scoreboard endpoint for the current season.

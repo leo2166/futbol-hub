@@ -1,20 +1,22 @@
 "use client"
 
 // ─── Fútbol Hub · Notification System ────────────────────────────────────────
-// Uses the Service Worker (public/sw.js) + Web Notifications API to deliver:
-//   • Audible + visible notifications on Android (via SW showNotification)
-//   • Works in background / when app is closed (SW stays alive)
-//   • Falls back gracefully on desktop/iOS where SW push is limited
+// Usa el Service Worker (public/sw.js) + Web Notifications API para:
+//   • Notificaciones audibles + visibles en Android (vía SW showNotification)
+//   • Funciona en segundo plano / cuando la app está cerrada
+//   • Fallback graceful en desktop/iOS donde SW push es limitado
+//   • Envía pings periódicos para mantener el SW activo en Android
 //
-// FLOW:
-//   1. requestNotificationPermission() → asks user for Notification + SW
-//   2. scheduleMatchReminder()         → sends message to SW with kickoff time
-//   3. SW wakes up every 30 s, fires showNotification 5 min before kick-off
-//   4. Device makes sound + vibrates (Android honours device volume setting)
+// FLUJO:
+//   1. requestNotificationPermission() → pide permiso al usuario
+//   2. scheduleMatchReminder()         → envía mensaje al SW con hora de kick-off
+//   3. El SW guarda en IndexedDB y usa setTimeout recursivo (Android-safe)
+//   4. El dispositivo vibra y suena 5 min antes del partido
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Service Worker registration ───────────────────────────────────────────────
 let swRegistration: ServiceWorkerRegistration | null = null
+let pingInterval: ReturnType<typeof setInterval> | null = null
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null
@@ -30,6 +32,16 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   }
 }
 
+// ── Obtener el SW activo (espera hasta 3 segundos si está instalando) ─────────
+async function getActiveSW(): Promise<ServiceWorker | null> {
+  try {
+    const reg = await navigator.serviceWorker.ready
+    return reg.active
+  } catch {
+    return null
+  }
+}
+
 // ── Permission request ────────────────────────────────────────────────────────
 export async function requestNotificationPermission(): Promise<boolean> {
   if (typeof window === "undefined" || !("Notification" in window)) return false
@@ -40,8 +52,26 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === "granted"
 }
 
+// ── Ping periódico para mantener el SW vivo en Android ───────────────────────
+// Android puede suspender el SW entre eventos. Un ping desde la página
+// cada 25 segundos (mientras hay recordatorios activos) fuerza al SW a
+// despertar y comprobar si es hora de disparar la notificación.
+function startSwPingLoop() {
+  if (pingInterval) return
+  pingInterval = setInterval(async () => {
+    const active = await getActiveSW()
+    active?.postMessage({ type: "PING" })
+  }, 25_000)
+}
+
+function stopSwPingLoop() {
+  if (pingInterval) {
+    clearInterval(pingInterval)
+    pingInterval = null
+  }
+}
+
 // ── Schedule a reminder via the Service Worker ────────────────────────────────
-// The SW will fire a system notification (with sound + vibration) 5 min before kickoff.
 export async function scheduleMatchReminder(params: {
   id: string
   matchTitle: string
@@ -54,19 +84,23 @@ export async function scheduleMatchReminder(params: {
     return { ok: false, method: "none", error: "Permiso denegado" }
   }
 
-  // Try Service Worker path (works on Android background)
-  const sw = await registerServiceWorker()
-  const active = sw?.active ?? (await navigator.serviceWorker.ready).active
+  // Registrar el SW primero
+  await registerServiceWorker()
+
+  // Esperar a que el SW esté activo
+  const active = await getActiveSW()
 
   if (active) {
     active.postMessage({
       type: "SCHEDULE_REMINDER",
       ...params,
     })
+    // Arrancar el ping loop para mantener el SW vivo en Android
+    startSwPingLoop()
     return { ok: true, method: "sw" }
   }
 
-  // Fallback: schedule via setTimeout (only works while tab is open)
+  // Fallback: setTimeout en página (sólo funciona si el tab sigue abierto)
   const msUntilAlert = params.kickoff - Date.now() - 5 * 60 * 1000
   if (msUntilAlert > 0 && msUntilAlert < 24 * 60 * 60 * 1000) {
     setTimeout(() => {
@@ -80,13 +114,22 @@ export async function scheduleMatchReminder(params: {
 
 // ── Cancel a reminder ─────────────────────────────────────────────────────────
 export async function cancelMatchReminder(id: string): Promise<void> {
-  const sw = await registerServiceWorker()
-  const active = sw?.active ?? (await navigator.serviceWorker.ready.then((r) => r.active).catch(() => null))
+  const active = await getActiveSW()
   active?.postMessage({ type: "CANCEL_REMINDER", id })
+  // Detener pings si no quedan recordatorios
+  active?.postMessage({ type: "LIST_REMINDERS" })
+  navigator.serviceWorker.addEventListener(
+    "message",
+    (e) => {
+      if (e.data?.type === "REMINDERS_LIST" && e.data.list?.length === 0) {
+        stopSwPingLoop()
+      }
+    },
+    { once: true },
+  )
 }
 
-// ── Fire an immediate local notification (no SW needed) ───────────────────────
-// Used as a fallback and for "send now" debug usage.
+// ── Fire an immediate local notification (fallback, sin SW) ───────────────────
 export function fireLocalNotification(
   matchTitle: string,
   teamName: string,
@@ -95,23 +138,20 @@ export function fireLocalNotification(
   if (typeof window === "undefined" || !("Notification" in window)) return
   if (Notification.permission !== "granted") return
 
-  // Desktop browsers support new Notification() directly.
-  // Android Chrome requires SW-based showNotification(), handled by the SW itself.
   try {
     const n = new Notification(`⚽ ¡Empieza en 5 min! — ${teamName}`, {
       body: `${matchTitle}${competition ? `\n${competition}` : ""}`,
-      icon: "/icon.svg",
+      icon: "/apple-icon.png",
       badge: "/icon-dark-32x32.png",
       silent: false,
     })
     n.onclick = () => window.focus()
   } catch {
-    // Android Chrome throws here — SW path should have been used instead
+    // Android Chrome lanza error aquí — el SW debería haberlo manejado
   }
 }
 
-// ── Legacy compat (used in countdown-timer.tsx) ───────────────────────────────
-// Kept for backward compatibility — schedules via SW when possible.
+// ── Compatibilidad hacia atrás ────────────────────────────────────────────────
 export function sendMatchReminder(
   matchTitle: string,
   kickoffDate: string,
@@ -126,7 +166,6 @@ export function sendMatchReminder(
     ({ ok, method, error }) => {
       if (!ok) {
         console.warn("[Notifications] Could not schedule reminder:", error)
-        // Last resort: alert
         alert(
           `✅ Recordatorio guardado: ${matchTitle}\n` +
           `📲 Activa las notificaciones del navegador para recibir la alarma 5 min antes del partido.`,

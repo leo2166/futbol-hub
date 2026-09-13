@@ -429,7 +429,7 @@ export function Dashboard() {
         )}
 
         <footer className="mt-12 border-t border-border pt-5 text-center text-xs text-muted-foreground">
-          Datos oficiales en tiempo real vía ESPN API · FC Barcelona · Real Madrid · Inter Miami
+          Datos oficiales en tiempo real vía ESPN API · FC Barcelona · Inter Miami CF
         </footer>
       </div>
     </div>
