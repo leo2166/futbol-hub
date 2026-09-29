@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import Image from "next/image"
 import { CalendarDays, Newspaper, Radio, Sparkles, Trophy, Users, Users2 } from "lucide-react"
-import { TEAM_ORDER, TEAMS, teamHasChampionsLeague, type Match, type TeamKey } from "@/lib/football-api"
+import { TEAM_ORDER, TEAMS, teamHasChampionsLeague, teamHasNationsLeague, type Match, type TeamKey } from "@/lib/football-api"
 import {
   useLeagueCalendar,
   useStandings,
@@ -27,7 +27,7 @@ import {
 } from "@/components/states"
 
 type MainTab = "matches" | "news" | "squad"
-type CalendarView = "team" | "league" | "ucl"
+type CalendarView = "team" | "league" | "ucl" | "nations-league"
 type StandingsView = "league" | "ucl"
 
 export function Dashboard() {
@@ -39,6 +39,7 @@ export function Dashboard() {
 
   const team = TEAMS[active]
   const hasUcl = teamHasChampionsLeague(active)
+  const hasNationsLeague = teamHasNationsLeague(active)
 
   const teamQuery = useTeamData(active)
   const standingsQuery = useStandings(active)
@@ -47,7 +48,7 @@ export function Dashboard() {
   const squadQuery = useTeamSquad(active)
 
   // When switching teams, reset UCL-only views if the team does not play in UCL
-  const currentView = !hasUcl && view === "ucl" ? "team" : view
+  const currentView = (!hasUcl && view === "ucl") || (!hasNationsLeague && view === "nations-league") ? "team" : view
   const currentStandingsTab = !hasUcl && standingsTab === "ucl" ? "league" : standingsTab
 
   // Find if there is a match in progress right now
@@ -278,6 +279,15 @@ export function Dashboard() {
                   Calendario de Champions
                 </ViewTab>
               )}
+              {hasNationsLeague && (
+                <ViewTab
+                  active={currentView === "nations-league"}
+                  onClick={() => setView("nations-league")}
+                  icon={<Radio className="h-4 w-4" />}
+                >
+                  Calendario Nations League
+                </ViewTab>
+              )}
             </div>
 
             {/* Calendars */}
@@ -309,6 +319,16 @@ export function Dashboard() {
                   team={team}
                   onSelectMatch={(id, league) =>
                     setSelectedMatch({ id, league: league || team.league })
+                  }
+                />
+              ) : currentView === "nations-league" ? (
+                <LeagueCalendar
+                  key={`${active}-nations-league`}
+                  team={team}
+                  competition="uefa.nations_league"
+                  title="Calendario · UEFA Nations League"
+                  onSelectMatch={(id, league) =>
+                    setSelectedMatch({ id, league: league || "uefa.nations_league" })
                   }
                 />
               ) : (

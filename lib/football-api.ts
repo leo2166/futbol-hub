@@ -9,7 +9,7 @@
 const SITE_BASE = "https://site.web.api.espn.com/apis/site/v2/sports/soccer"
 const CORE_BASE = "https://site.web.api.espn.com/apis/v2/sports/soccer"
 
-export type TeamKey = "barcelona" | "inter-miami"
+export type TeamKey = "barcelona" | "inter-miami" | "real-madrid"
 
 export interface TeamConfig {
   key: TeamKey
@@ -44,14 +44,25 @@ export const TEAMS: Record<TeamKey, TeamConfig> = {
     accent: "oklch(0.68 0.19 350)", // Miami pink
     accentForeground: "#ffffff",
   },
+  "real-madrid": {
+    key: "real-madrid",
+    name: "Real Madrid CF",
+    shortName: "Madrid",
+    league: "esp.1",
+    leagueName: "LaLiga",
+    espnId: "86",
+    accent: "#ffffff", // Blanco merengue
+    accentForeground: "#000000", // Texto en negro
+  },
 }
 
-export const TEAM_ORDER: TeamKey[] = ["barcelona", "inter-miami"]
+export const TEAM_ORDER: TeamKey[] = ["barcelona", "real-madrid", "inter-miami"]
 
 // Partidos o torneos verificados oficiales que pueden no estar indexados en la API pública de ESPN
 export const VERIFIED_EXTRA_MATCHES: Record<TeamKey, Match[]> = {
   barcelona: [],
   "inter-miami": [],
+  "real-madrid": [],
 }
 
 
@@ -260,6 +271,8 @@ export function shortCompetition(name: string): string {
     "LaLiga EA Sports": "LaLiga",
     "UEFA Champions League": "Champions League",
     "Champions League": "Champions League",
+    "UEFA Nations League": "Nations League",
+    "Nations League": "Nations League",
     "Spanish Copa del Rey": "Copa del Rey",
     "Copa del Rey": "Copa del Rey",
     "Copa del Rey de España": "Copa del Rey",
@@ -290,6 +303,14 @@ export function shortCompetition(name: string): string {
 export const TEAM_TOURNAMENT_SLUGS: Record<TeamKey, string[]> = {
   barcelona: [
     "uefa.champions",
+    "uefa.nations_league",
+    "esp.copa_del_rey",
+    "esp.super_copa",
+    "fifa.cwc",
+  ],
+  "real-madrid": [
+    "uefa.champions",
+    "uefa.nations_league",
     "esp.copa_del_rey",
     "esp.super_copa",
     "fifa.cwc",
@@ -486,9 +507,9 @@ async function fetchScheduleResolved(
       }
     })
 
-    // 4) For Barcelona: buscar temporada completa de Champions League
+    // 4) Para equipos europeos: buscar temporada completa de Champions League
     let uclPromise: Promise<EspnEvent[]> = Promise.resolve([] as EspnEvent[])
-    if (isEuropean && team.espnId === "83") {
+    if (isEuropean && (team.espnId === "83" || team.espnId === "86")) {
       uclPromise = fetchJson<EspnScoreboardResponse>(
         `${SITE_BASE}/uefa.champions/scoreboard?dates=20260801-20270630&limit=500`,
       )
@@ -664,8 +685,28 @@ async function getUclDates(): Promise<string[]> {
   }
 }
 
+let nlDatesCache: string[] | null = null
+async function getNationsLeagueDates(): Promise<string[]> {
+  if (nlDatesCache && nlDatesCache.length > 0) return nlDatesCache
+  try {
+    const data = await fetchJson<EspnScoreboardResponse>(
+      `${SITE_BASE}/uefa.nations_league/scoreboard?dates=20260801-20270630&limit=500`,
+    )
+    const uniqueYmds = [...new Set((data.events ?? []).map((e) => e.date.slice(0, 10)))].sort()
+    nlDatesCache = uniqueYmds.map((d) => `${d}T12:00:00Z`)
+    return nlDatesCache
+  } catch (err) {
+    console.error("Error loading Nations League dates:", err)
+    return []
+  }
+}
+
 export function teamHasChampionsLeague(teamKey: TeamKey): boolean {
-  return teamKey === "barcelona"
+  return teamKey === "barcelona" || teamKey === "real-madrid"
+}
+
+export function teamHasNationsLeague(teamKey: TeamKey): boolean {
+  return teamKey === "barcelona" || teamKey === "real-madrid"
 }
 
 // League-wide calendar via the scoreboard endpoint for the current season.
@@ -676,15 +717,18 @@ export async function getLeagueCalendar(
 ): Promise<LeagueCalendar> {
   const team = TEAMS[teamKey]
   const isUcl = competition === "uefa.champions"
-  const leagueSlug = isUcl ? "uefa.champions" : team.league
+  const isNl = competition === "uefa.nations_league"
+  const leagueSlug = isUcl ? "uefa.champions" : isNl ? "uefa.nations_league" : team.league
   const base = `${SITE_BASE}/${leagueSlug}/scoreboard`
 
   let dates: string[] = []
-  let leagueName = isUcl ? "Champions League" : team.leagueName
+  let leagueName = isUcl ? "Champions League" : isNl ? "Nations League" : team.leagueName
   let seasonLabel = "2026-27"
 
   if (isUcl) {
     dates = await getUclDates()
+  } else if (isNl) {
+    dates = await getNationsLeagueDates()
   } else {
     // 1) Pull the season calendar (list of fixture dates) + season label.
     const meta = await fetchJson<EspnScoreboardResponse>(base)
