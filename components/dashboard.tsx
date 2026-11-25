@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { CalendarDays, Newspaper, Radio, Sparkles, Trophy, Users, Users2 } from "lucide-react"
-import { TEAM_ORDER, TEAMS, teamHasChampionsLeague, teamHasNationsLeague, type Match, type TeamKey } from "@/lib/football-api"
+import { TEAM_ORDER, TEAMS, teamHasChampionsLeague, teamHasNationsLeague, type TeamKey } from "@/lib/football-api"
+import { ThemeToggle, useTheme } from "@/components/theme-provider"
 import {
   useLeagueCalendar,
   useStandings,
@@ -37,7 +38,24 @@ export function Dashboard() {
   const [standingsTab, setStandingsTab] = useState<StandingsView>("league")
   const [selectedMatch, setSelectedMatch] = useState<{ id: string; league?: string } | null>(null)
 
+  const { resolvedTheme } = useTheme()
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(id)
+  }, [])
+
   const team = TEAMS[active]
+  const getTeamColors = (key: TeamKey) => {
+    const cfg = TEAMS[key]
+    if (key === "real-madrid" && resolvedTheme === "beige") {
+      return { accent: "#1e3a8a", accentForeground: "#ffffff" }
+    }
+    return { accent: cfg.accent, accentForeground: cfg.accentForeground }
+  }
+  const activeColors = getTeamColors(active)
+
   const hasUcl = teamHasChampionsLeague(active)
   const hasNationsLeague = teamHasNationsLeague(active)
 
@@ -51,31 +69,40 @@ export function Dashboard() {
   const currentView = (!hasUcl && view === "ucl") || (!hasNationsLeague && view === "nations-league") ? "team" : view
   const currentStandingsTab = !hasUcl && standingsTab === "ucl" ? "league" : standingsTab
 
+  const sortedMatches = useMemo(() => {
+    if (!teamQuery.data?.matches) return []
+    return [...teamQuery.data.matches].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    )
+  }, [teamQuery.data?.matches])
+
   // Find if there is a match in progress right now
   const liveMatch = useMemo(() => {
-    if (!teamQuery.data?.matches) return undefined
-    return teamQuery.data.matches.find(
+    return sortedMatches.find(
       (m) =>
         m.state === "in" ||
         (!m.completed && m.statusDetail?.toLowerCase().includes("vivo")),
     )
-  }, [teamQuery.data?.matches])
+  }, [sortedMatches])
 
-  // Find the next upcoming match for countdown (only if not already playing live)
+  // "Vivir el presente":
+  // 1) Si no hay partido en vivo, mostrar el partido de hoy que aún no ha finalizado
+  // 2) Si hoy no hay partido o el partido de hoy ya finalizó, mostrar el próximo partido futuro
   const nextMatch = useMemo(() => {
-    if (!teamQuery.data?.matches) return undefined
-    const now = Date.now()
-    return teamQuery.data.matches.find(
-      (m) => !m.completed && new Date(m.date).getTime() > now,
-    )
-  }, [teamQuery.data?.matches])
+    if (liveMatch) return undefined
+    const KICKOFF_GRACE_MS = 3 * 60 * 60 * 1000
+    return sortedMatches.find((m) => {
+      if (m.completed || m.state === "post") return false
+      return new Date(m.date).getTime() >= now - KICKOFF_GRACE_MS
+    })
+  }, [sortedMatches, liveMatch, now])
 
   return (
     <div
       className="min-h-screen bg-background"
       style={{
-        ["--team-accent" as string]: team.accent,
-        ["--team-accent-foreground" as string]: team.accentForeground,
+        ["--team-accent" as string]: activeColors.accent,
+        ["--team-accent-foreground" as string]: activeColors.accentForeground,
       }}
     >
       {/* Ambient team-colored glow */}
@@ -89,19 +116,23 @@ export function Dashboard() {
       />
 
       <div className="relative mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <header className="mb-8">
-          <p className="mb-1 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-            Centro de mando
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
-            Fútbol Hub · Mis Equipos
-          </h1>
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+              Centro de mando
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
+              Fútbol Hub · Mis Equipos
+            </h1>
+          </div>
+          <ThemeToggle />
         </header>
 
         {/* Team Switcher */}
         <div className="mb-8 flex flex-wrap gap-2">
           {TEAM_ORDER.map((key) => {
             const t = TEAMS[key]
+            const tColors = getTeamColors(key)
             const isActive = key === active
             return (
               <button
@@ -115,8 +146,8 @@ export function Dashboard() {
                 style={
                   isActive
                     ? {
-                        backgroundColor: t.accent,
-                        color: t.accentForeground,
+                        backgroundColor: tColors.accent,
+                        color: tColors.accentForeground,
                       }
                     : undefined
                 }
@@ -147,17 +178,17 @@ export function Dashboard() {
                 league: liveMatch.competition?.slug || team.league,
               })
             }
-            className="mb-8 relative overflow-hidden rounded-2xl border-2 border-rose-500/80 bg-rose-950/20 p-5 backdrop-blur-md cursor-pointer transition-all hover:scale-[1.01] hover:shadow-xl hover:shadow-rose-500/10"
+            className="mb-8 relative overflow-hidden rounded-2xl border-2 border-rose-500/80 bg-rose-500/10 dark:bg-rose-950/20 p-5 backdrop-blur-md cursor-pointer transition-all hover:scale-[1.01] hover:shadow-xl hover:shadow-rose-500/10"
           >
             <div className="flex items-center justify-between gap-3 mb-3">
-              <span className="flex items-center gap-2 rounded-full bg-rose-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-400">
+              <span className="flex items-center gap-2 rounded-full bg-rose-500/15 dark:bg-rose-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600 dark:bg-rose-500"></span>
                 </span>
                 EN JUEGO · MINUTO A MINUTO
               </span>
-              <span className="font-mono text-sm font-bold text-rose-300">
+              <span className="font-mono text-sm font-bold text-rose-700 dark:text-rose-300">
                 {liveMatch.statusDetail || "EN VIVO"}
               </span>
             </div>
@@ -202,10 +233,10 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between border-t border-rose-500/20 pt-2.5 text-xs text-rose-300/80">
+            <div className="mt-3 flex items-center justify-between border-t border-rose-500/20 pt-2.5 text-xs text-rose-700/90 dark:text-rose-300/80">
               <span>{liveMatch.competition?.name || "Partido en vivo"}</span>
               <span className="font-semibold underline flex items-center gap-1">
-                <Radio className="h-3 w-3 animate-pulse text-rose-400" />
+                <Radio className="h-3 w-3 animate-pulse text-rose-600 dark:text-rose-400" />
                 Pulsar para abrir Minuto a Minuto en directo &rarr;
               </span>
             </div>
@@ -224,6 +255,12 @@ export function Dashboard() {
               })
             }
           />
+        )}
+
+        {!teamQuery.isLoading && !teamQuery.isError && !liveMatch && !nextMatch && (
+          <div className="mb-8 rounded-2xl border border-border bg-card/70 p-4 text-center text-sm text-muted-foreground">
+            No hay partidos próximos programados en el calendario de {team.name} por ahora.
+          </div>
         )}
 
         {/* Main Section Navigation Tabs */}

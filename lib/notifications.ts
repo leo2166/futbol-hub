@@ -1,18 +1,98 @@
 "use client"
 
 // ─── Fútbol Hub · Notification System ────────────────────────────────────────
-// Usa el Service Worker (public/sw.js) + Web Notifications API para:
-//   • Notificaciones audibles + visibles en Android (vía SW showNotification)
+// Usa el Service Worker (public/sw.js) + Web Notifications API + Web Audio API:
+//   • Notificaciones audibles + visibles en Android/Desktop (vía SW showNotification)
 //   • Funciona en segundo plano / cuando la app está cerrada
-//   • Fallback graceful en desktop/iOS donde SW push es limitado
-//   • Envía pings periódicos para mantener el SW activo en Android
-//
-// FLUJO:
-//   1. requestNotificationPermission() → pide permiso al usuario
-//   2. scheduleMatchReminder()         → envía mensaje al SW con hora de kick-off
-//   3. El SW guarda en IndexedDB y usa setTimeout recursivo (Android-safe)
-//   4. El dispositivo vibra y suena 5 min antes del partido
+//   • Fallback graceful con setTimeout + sonido Web Audio cuando la pestaña está abierta
+//   • Persistencia en localStorage para mostrar el estado de la alarma al instante
 // ─────────────────────────────────────────────────────────────────────────────
+
+const REMINDERS_STORAGE_KEY = "futbol-hub-reminders"
+const FIRED_STORAGE_KEY = "futbol-hub-reminders-fired"
+
+interface StoredReminder {
+  id: string
+  matchTitle: string
+  teamName: string
+  kickoff: number
+  competition?: string
+}
+
+// ── Persistencia rápida en localStorage ───────────────────────────────────────
+function readStoredReminders(): Record<string, StoredReminder> {
+  if (typeof window === "undefined") return {}
+  try {
+    const raw = localStorage.getItem(REMINDERS_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, StoredReminder>
+    const now = Date.now()
+    const cleaned: Record<string, StoredReminder> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v && v.kickoff > now - 3 * 60 * 60 * 1000) {
+        cleaned[k] = v
+      }
+    }
+    return cleaned
+  } catch {
+    return {}
+  }
+}
+
+function writeStoredReminders(map: Record<string, StoredReminder>) {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function hasMatchReminder(id: string): boolean {
+  const map = readStoredReminders()
+  return Boolean(map[id])
+}
+
+export function markReminderFired(id: string): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    const raw = localStorage.getItem(FIRED_STORAGE_KEY)
+    const set: string[] = raw ? JSON.parse(raw) : []
+    if (set.includes(id)) return false
+    set.push(id)
+    localStorage.setItem(FIRED_STORAGE_KEY, JSON.stringify(set.slice(-30)))
+    return true
+  } catch {
+    return true
+  }
+}
+
+// ── Sonido de alarma suave con Web Audio API ──────────────────────────────────
+export function playAlarmChime() {
+  if (typeof window === "undefined") return
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const now = ctx.currentTime
+    const notes = [880, 1108.73, 1318.51] // A5, C#6, E6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.frequency.setValueAtTime(freq, now + i * 0.16)
+      gain.gain.setValueAtTime(0.001, now + i * 0.16)
+      gain.gain.exponentialRampToValueAtTime(0.18, now + i * 0.16 + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.16 + 0.28)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(now + i * 0.16)
+      osc.stop(now + i * 0.16 + 0.3)
+    })
+  } catch {
+    // ignore audio autoplay restrictions
+  }
+}
 
 // ── Service Worker registration ───────────────────────────────────────────────
 let swRegistration: ServiceWorkerRegistration | null = null
@@ -24,7 +104,6 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 
   try {
     swRegistration = await navigator.serviceWorker.register("/sw.js", { scope: "/" })
-    console.log("[SW] Registered:", swRegistration.scope)
     return swRegistration
   } catch (err) {
     console.warn("[SW] Registration failed:", err)
@@ -32,8 +111,8 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   }
 }
 
-// ── Obtener el SW activo (espera hasta 3 segundos si está instalando) ─────────
 async function getActiveSW(): Promise<ServiceWorker | null> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null
   try {
     const reg = await navigator.serviceWorker.ready
     return reg.active
@@ -52,10 +131,6 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === "granted"
 }
 
-// ── Ping periódico para mantener el SW vivo en Android ───────────────────────
-// Android puede suspender el SW entre eventos. Un ping desde la página
-// cada 25 segundos (mientras hay recordatorios activos) fuerza al SW a
-// despertar y comprobar si es hora de disparar la notificación.
 function startSwPingLoop() {
   if (pingInterval) return
   pingInterval = setInterval(async () => {
@@ -84,10 +159,11 @@ export async function scheduleMatchReminder(params: {
     return { ok: false, method: "none", error: "Permiso denegado" }
   }
 
-  // Registrar el SW primero
-  await registerServiceWorker()
+  const map = readStoredReminders()
+  map[params.id] = params
+  writeStoredReminders(map)
 
-  // Esperar a que el SW esté activo
+  await registerServiceWorker()
   const active = await getActiveSW()
 
   if (active) {
@@ -95,38 +171,44 @@ export async function scheduleMatchReminder(params: {
       type: "SCHEDULE_REMINDER",
       ...params,
     })
-    // Arrancar el ping loop para mantener el SW vivo en Android
     startSwPingLoop()
     return { ok: true, method: "sw" }
   }
 
-  // Fallback: setTimeout en página (sólo funciona si el tab sigue abierto)
-  const msUntilAlert = params.kickoff - Date.now() - 5 * 60 * 1000
+  const now = Date.now()
+  const msUntilAlert = params.kickoff - now - 5 * 60 * 1000
+  if (msUntilAlert <= 0 && params.kickoff - now > -90_000) {
+    if (markReminderFired(params.id)) {
+      playAlarmChime()
+      fireLocalNotification(params.matchTitle, params.teamName, params.competition)
+    }
+    return { ok: true, method: "timeout" }
+  }
+
   if (msUntilAlert > 0 && msUntilAlert < 24 * 60 * 60 * 1000) {
     setTimeout(() => {
-      fireLocalNotification(params.matchTitle, params.teamName, params.competition)
+      if (hasMatchReminder(params.id) && markReminderFired(params.id)) {
+        playAlarmChime()
+        fireLocalNotification(params.matchTitle, params.teamName, params.competition)
+      }
     }, msUntilAlert)
     return { ok: true, method: "timeout" }
   }
 
-  return { ok: false, method: "none", error: "Partido demasiado lejano o pasado" }
+  return { ok: true, method: "timeout" }
 }
 
 // ── Cancel a reminder ─────────────────────────────────────────────────────────
 export async function cancelMatchReminder(id: string): Promise<void> {
+  const map = readStoredReminders()
+  delete map[id]
+  writeStoredReminders(map)
+
   const active = await getActiveSW()
   active?.postMessage({ type: "CANCEL_REMINDER", id })
-  // Detener pings si no quedan recordatorios
-  active?.postMessage({ type: "LIST_REMINDERS" })
-  navigator.serviceWorker.addEventListener(
-    "message",
-    (e) => {
-      if (e.data?.type === "REMINDERS_LIST" && e.data.list?.length === 0) {
-        stopSwPingLoop()
-      }
-    },
-    { once: true },
-  )
+  if (Object.keys(map).length === 0) {
+    stopSwPingLoop()
+  }
 }
 
 // ── Fire an immediate local notification (fallback, sin SW) ───────────────────
@@ -149,30 +231,4 @@ export function fireLocalNotification(
   } catch {
     // Android Chrome lanza error aquí — el SW debería haberlo manejado
   }
-}
-
-// ── Compatibilidad hacia atrás ────────────────────────────────────────────────
-export function sendMatchReminder(
-  matchTitle: string,
-  kickoffDate: string,
-  teamName: string,
-  matchId?: string,
-  competition?: string,
-) {
-  const id = matchId ?? `match-${encodeURIComponent(matchTitle)}`
-  const kickoff = new Date(kickoffDate).getTime()
-
-  scheduleMatchReminder({ id, matchTitle, teamName, kickoff, competition }).then(
-    ({ ok, method, error }) => {
-      if (!ok) {
-        console.warn("[Notifications] Could not schedule reminder:", error)
-        alert(
-          `✅ Recordatorio guardado: ${matchTitle}\n` +
-          `📲 Activa las notificaciones del navegador para recibir la alarma 5 min antes del partido.`,
-        )
-      } else if (method === "timeout") {
-        console.info("[Notifications] Reminder via setTimeout (tab must stay open)")
-      }
-    },
-  )
 }

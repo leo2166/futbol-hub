@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { QueryProvider } from '@/components/query-provider'
 import { ServiceWorkerRegistrar } from '@/components/service-worker-registrar'
+import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
@@ -34,9 +35,14 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'dark',
-  themeColor: '#0a0a0a',
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f5efe6' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
+  ],
 }
+
+const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('futbol-hub-theme')||'beige';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'beige'):t;var d=document.documentElement;d.classList.remove('dark','beige','light');d.classList.add(r==='dark'?'dark':'beige');}catch(e){document.documentElement.classList.add('beige');}})();`
 
 export default function RootLayout({
   children,
@@ -46,10 +52,16 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+      className={`beige bg-background ${geistSans.variable} ${geistMono.variable}`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="font-sans antialiased">
-        <QueryProvider>{children}</QueryProvider>
+        <ThemeProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </ThemeProvider>
         {/* Registers the Service Worker for background notifications */}
         <ServiceWorkerRegistrar />
         {process.env.NODE_ENV === 'production' && <Analytics />}

@@ -32,8 +32,17 @@ export function useTeamData(teamKey: TeamKey) {
     queryFn: () => getJson<TeamData>(`/api/team/${teamKey}`),
     refetchInterval: (query) => {
       const data = query.state.data
-      const hasLive = data?.matches?.some((m) => m.state === "in")
-      return hasLive ? 20000 : false
+      if (!data?.matches) return false
+      const now = Date.now()
+      const hasLive = data.matches.some((m) => m.state === "in")
+      if (hasLive) return 20000
+      // Si hay un partido por empezar en las próximas 2h o recién iniciado (hasta 3h), refrescar cada 30s
+      const hasImminentOrRecent = data.matches.some((m) => {
+        if (m.completed || m.state === "post") return false
+        const diff = new Date(m.date).getTime() - now
+        return diff <= 2 * 60 * 60 * 1000 && diff >= -3 * 60 * 60 * 1000
+      })
+      return hasImminentOrRecent ? 30000 : false
     },
   })
 }
