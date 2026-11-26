@@ -133,6 +133,9 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// Requerido por algunos navegadores móviles para habilitar la instalación PWA
+self.addEventListener("fetch", () => {});
+
 // ── Mensajes desde la página ──────────────────────────────────────────────────
 self.addEventListener("message", (e) => {
   const msg = e.data;

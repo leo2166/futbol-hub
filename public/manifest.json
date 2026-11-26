@@ -2,35 +2,52 @@
   "id": "/",
   "name": "Fútbol Hub · Mis Equipos",
   "short_name": "Fútbol Hub",
-  "description": "Próximos partidos, resultados y clasificación en vivo del Barça e Inter Miami.",
+  "description": "Próximos partidos, resultados y clasificación en vivo del Barça, Real Madrid e Inter Miami.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#f5efe6",
+  "theme_color": "#004d98",
   "orientation": "portrait-primary",
   "lang": "es",
   "categories": ["sports"],
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/apple-icon.png",
       "sizes": "180x180",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/png"
     },
     {
-      "src": "/icon-dark-32x32.png",
-      "sizes": "32x32",
-      "type": "image/png"
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ],
-  "screenshots": [],
   "prefer_related_applications": false
 }
-

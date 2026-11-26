@@ -122,6 +122,16 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html.beige,
+  html.beige body {
+    background-color: #f5efe6;
+    color: #231f1a;
+  }
+  html.dark,
+  html.dark body {
+    background-color: oklch(0.145 0 0);
+    color: oklch(0.985 0 0);
+  }
   body {
     @apply bg-background text-foreground transition-colors duration-300;
   }
